@@ -1,5 +1,63 @@
 # Changelog — ¡Quac!
 
+## Sesión 2026-06-25 (v0.16): panel técnico del grafo + control de calidad (git/lint/CI)
+
+Sesión doble: una funcionalidad nueva en el dashboard y la elevación del proyecto
+al estándar de ingeniería (antes no tenía git, lint ni CI).
+
+### Funcionalidad nueva — panel de información técnica del estudio
+
+| Qué | Detalle |
+|-----|---------|
+| `studyInfo.js` (NUEVO) | Panel PERMANENTE en la pestaña "Red interactiva": lateral fijo a la derecha de la red, tipografía monoespacio, legible sin hover. **Todo se calcula en el frontend** desde el grafo ya cargado (sin servidor ni deps nuevas). |
+| Métricas | Corpus (fuente, rango de fechas, nº documentos) · Grafo (nodos, aristas, **densidad 2E/N(N-1)**, tipo dirigido/no dirigido/bipartito, pesos sí/no) · Grado (prom/máx+nodo/mín sin aislados/nº aislados) · Componentes (nº, mayor, ¿conexo?) · **Diferido en setTimeout** (no bloquea el render 3D): clustering promedio + diámetro (omite si N>5000) · Top-5 por grado · botón **"Copiar métricas"** (texto plano). |
+| Integración | `dashboard.py` incrusta el módulo igual que `handControls.js` (reemplaza `/*__STUDYINFO_JS__*/`, lee en runtime, busca en `sys._MEIPASS` para el .exe) + CSS `.study-panel`/`.red-wrap` + monta en `#study-mount`. `quac_pro.spec` lo empaqueta en datas. |
+| Verificado | Lógica probada con Node sobre el grafo real (48 nodos, 518 aristas, densidad 0.4592, Cepeda grado máx 47, conexo). Dashboard real regenerado (1989 notas relevantes) con el panel incrustado. **.exe PRO recompilado** (94 MB) con `studyInfo.js` empaquetado en `_internal/`. No rompe la viz 3D ni los gestos de mano. |
+
+Forma real del grafo (confirmada): `nodes={id,categoria,color,freq}`,
+`edges={source,target,weight}` → **no dirigido con pesos**.
+
+### Modo-Ingeniero — el proyecto no tenía control de versiones ni calidad estática
+
+- **Causa raíz:** Quac se desarrolló sin git, `.gitignore`, lint ni CI. Riesgo alto:
+  `datos/` pesa **11 GB** (BD + dashboards + Excel), `dist/` 1.8 GB, `build/` 508 MB.
+- **Git:** `git init` + identidad (Fabian Gulla) + `.gitignore` (excluye datos/dist/
+  build/BD/secretos) + `.gitattributes` (normaliza LF/CRLF en Windows). 2 commits:
+  estado inicial (92 archivos, 19721 líneas) + fix de check.bat. Verificado que NADA
+  pesado se versiona (commit inicial = 1.6 MB).
+- **Lint+formato (ruff):** instalado en el venv PRO + `pyproject.toml` [tool.ruff]
+  (select E/F/I/B/C4/UP/W; ignore documentado de reglas que cambiarían semántica).
+  **De 340 errores → 0** (243 autofix + 61 archivos formateados). Código muerto
+  eliminado: variable `mapa` en `analisis_avanzado.py`, `medios` en `busqueda/motor.py`.
+- **CI local:** `Makefile` + `check.bat` (cp1252-safe, sin unicode) + hook de
+  pre-commit (`scripts/install_hooks.py`) **verificado funcionando** (corre lint+
+  formato+tests y deja pasar el commit). 88 tests pasan.
+- **Higiene:** `scratch_regen.py` (temporal de la sesión) → archivado en
+  `scripts/_experimentos/regen_dashboard_bd.py` con README (regenera el dashboard
+  desde la BD sin re-scrapear). pytest+ruff ahora presentes en el venv.
+
+### Pendiente Kappa preparado
+
+`datos/muestra_validacion_tono.csv` con 50 notas (polaridad_auto poblada:
+7 neg / 21 neu / 22 pos; `polaridad_manual` VACÍA). **Falta codificación humana**
+(es el sentido del Kappa) y luego:
+`python cli.py --db datos/quac.db validar --concordancia datos/muestra_validacion_tono.csv`
+
+### Archivos
+- NUEVOS: `studyInfo.js`, `.gitignore`, `.gitattributes`, `pyproject.toml`,
+  `Makefile`, `check.bat`, `scripts/install_hooks.py`,
+  `scripts/_experimentos/regen_dashboard_bd.py` (+README).
+- MODIFICADOS: `dashboard.py` (incrusta panel + CSS + montaje), `quac_pro.spec`
+  (+studyInfo.js), `analisis_avanzado.py` y `busqueda/motor.py` (código muerto),
+  +61 archivos reformateados por ruff.
+
+### Lección
+Regenerar el dashboard desde BD tarda ~17 min (3423 notas, fase NER la más larga).
+**No correr con pipe a grep** (el buffer no se vacía y parece colgado): usar
+`python -u` con log a archivo propio.
+
+---
+
 ## Sesión 2026-06-19/20 (v0.15): prominencia, origen, líneas de tiempo, redes en GUI
 
 Sesión orientada a la **prueba definitiva (Cepeda vs De la Espriella)**: nuevas
