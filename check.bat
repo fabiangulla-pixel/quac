@@ -1,5 +1,5 @@
 @echo off
-REM ¡Quac! — verificacion de calidad (lint + formato + tests).
+REM Quac - verificacion de calidad (lint + formato + tests).
 REM Equivalente a `make check` para consola Windows. Sin caracteres unicode
 REM para no romper en cp1252.
 setlocal
