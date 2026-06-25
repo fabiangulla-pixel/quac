@@ -1,0 +1,23 @@
+# Normaliza fin de línea: evita ruido LF/CRLF en Windows.
+* text=auto
+
+# Scripts de Windows con CRLF explícito.
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Código y texto siempre LF.
+*.py text eol=lf
+*.js text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.txt text eol=lf
+
+# Binarios: nunca tocar.
+*.png binary
+*.jpg binary
+*.pdf binary
+*.docx binary
+*.xlsx binary
+*.db binary
+*.sqlite binary
+*.exe binary

@@ -1,0 +1,53 @@
+# --- Entornos virtuales ---
+venv/
+.venv/
+env/
+quac_pro_env/
+
+# --- Caché de Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+
+# --- Empaquetado PyInstaller (pesado, reproducible) ---
+build/
+dist/
+*.spec.bak
+
+# --- Datos del corpus: NO versionar (datos/ pesa GB: BD, dashboards, Excel) ---
+datos/
+*.db
+*.sqlite
+*.sqlite3
+*.db.bak
+*.dashboard.html
+*.red.html
+*.xlsx
+*.gexf
+
+# Pero SÍ conservar el corpus de URLs semilla (texto, liviano, reproducible)
+!datos/.gitkeep
+
+# --- Logs y temporales ---
+*.log
+scratch_*
+scratch/
+datos/logs_auto/
+
+# --- Secretos / config local ---
+.env
+*.key
+secrets.json
+quac_config.json
+
+# --- Sistema operativo / editores ---
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# --- "Para usar en cualquier PC" (copia portable, pesada) ---
+Para usar en cualquier PC/

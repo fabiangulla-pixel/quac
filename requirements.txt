@@ -1,0 +1,31 @@
+# ¡Quac! — dependencias
+# Núcleo de análisis (compartido con Bashkar Station)
+spacy>=3.8
+click>=8.0          # requerido por la CLI de spaCy (descarga del modelo)
+networkx>=3.6
+scikit-learn>=1.4   # NMF para topic modeling
+openpyxl>=3.1       # exportar tablas a Excel para el paper
+# Modelo lingüístico español de spaCy:
+#   python -m spacy download es_core_news_sm
+
+# Capa de scraping
+requests>=2.32
+beautifulsoup4>=4.13
+lxml>=5.0
+trafilatura>=2.0
+
+# Captura vía sesión de Chrome (CDP) — fallback para notas con JS/suscripción
+httpx>=0.27
+websocket-client>=1.7
+
+# Visualización de redes (viz_engine / network_engine de Bashkar)
+pyvis>=0.3
+
+# Opcionales (enriquecimiento con IA; el MVP funciona 100% offline sin esto)
+# anthropic>=0.40     # sentimiento/NER con Claude
+# python-louvain      # comunidades en la red (modularidad)
+# transformers>=4.40  # sentimiento con modelo transformer (más preciso, ~500MB)
+# torch>=2.0          #   (requerido por transformers; ~1GB)
+
+# Tests
+pytest>=8.0

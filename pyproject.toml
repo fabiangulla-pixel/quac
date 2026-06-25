@@ -1,0 +1,41 @@
+[project]
+name = "quac"
+version = "0.15.0"
+description = "¡Quac! — análisis computacional de prensa contemporánea colombiana"
+requires-python = ">=3.12"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = [
+    "scripts/_experimentos",
+    "build",
+    "dist",
+    "Para usar en cualquier PC",
+    "lib",
+]
+
+[tool.ruff.lint]
+# Conjunto pragmático: errores, pyflakes, imports, bugbear, comprehensions,
+# pyupgrade, warnings. Se omiten reglas que exigirían cambios de comportamiento
+# en código ya validado (un pase de calidad no cambia semántica).
+select = ["E", "F", "I", "B", "C4", "UP", "W"]
+ignore = [
+    "E501",   # líneas largas: muchas cadenas de UI/JS embebido; no se parten
+    "B008",   # llamadas en defaults: patrón usado en CLI/argparse del proyecto
+    "B905",   # zip sin strict=: cambiaría comportamiento; se omite
+    "E741",   # nombres de variable ambiguos (l/I/O): renombrar es riesgoso aquí
+    "B904",   # raise ... from: estilístico en except del proyecto, no se fuerza
+    "E731",   # lambdas asignadas: patrón compacto usado en helpers; no se reescribe
+    "B007",   # variable de loop sin usar: legible tal cual; no se fuerza "_"
+    "C401",   # generador→set comprehension: estilístico, no cambia resultado
+    "C408",   # dict() literal: estilístico
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests y scripts que ajustan sys.path antes de importar.
+"tests/*" = ["E402"]
+"scripts/*" = ["E402"]
+"automatico.py" = ["E402"]
+# cli.py importa tras reconfigurar UTF-8 en stdout/stderr (necesario en Windows).
+"cli.py" = ["E402"]
