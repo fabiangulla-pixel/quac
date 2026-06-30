@@ -31,6 +31,7 @@ for _stream in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
+from core import costos, sentiment_engine
 from db import BaseDatos
 from scrapers.registro import listar_medios, scraper_para_url
 
@@ -542,6 +543,107 @@ def cmd_validar(args):
     return 0
 
 
+def cmd_tono(args):
+    """Análisis de tono editorial con Claude — con estimación y registro de costo.
+
+    Implementa el estándar de costo IA: estima volumen→tokens→USD, pide
+    confirmación ANTES de gastar, ejecuta el lote y reporta el costo REAL leído
+    del usage de Claude.
+    """
+    import os
+
+    api_key = args.api_key or os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        print(
+            "Falta la API key de Anthropic. Pásala con --api-key o en la variable "
+            "de entorno ANTHROPIC_API_KEY.",
+            file=sys.stderr,
+        )
+        return 1
+
+    db = BaseDatos(args.db)
+    notas = db.todas_las_notas()
+    if not notas:
+        print("No hay notas. Analiza o scrapea un corpus primero.", file=sys.stderr)
+        db.close()
+        return 1
+
+    # Construir {id: texto} a partir de titular + cuerpo (lo que ve el motor de tono).
+    articulos = {}
+    for n in notas:
+        texto = ((n.get("titular") or "") + "\n\n" + (n.get("cuerpo") or "")).strip()
+        if texto:
+            articulos[str(n["id"])] = texto
+    if args.limite:
+        articulos = dict(list(articulos.items())[: args.limite])
+
+    # 1) Estimar y mostrar el costo ANTES de ejecutar.
+    est = costos.estimar_lote_tono(articulos, args.modelo)
+    print(est.resumen())
+    print()
+
+    # 2) Confirmar (salvo --si para flujos automáticos).
+    if not args.si:
+        try:
+            resp = input("¿Ejecutar el análisis de tono con este costo? [s/N] ").strip().lower()
+        except EOFError:
+            resp = ""
+        if resp not in ("s", "si", "sí", "y", "yes"):
+            print("Cancelado. No se gastó nada.")
+            db.close()
+            return 0
+
+    # 3) Ejecutar el lote y medir el costo real.
+    print(f"\nAnalizando el tono de {len(articulos)} notas con {args.modelo}...")
+
+    def _progreso(hechos, total, _id):
+        if hechos % 25 == 0 or hechos == total:
+            print(f"  {hechos}/{total}", end="\r", flush=True)
+
+    resultados, real = sentiment_engine.analizar_corpus_tono(
+        articulos,
+        api_key=api_key,
+        modelo=args.modelo,
+        callback=_progreso,
+        workers=args.workers,
+        devolver_costo=True,
+    )
+    print()
+
+    errores = sum(1 for r in resultados.values() if r.get("error"))
+    print(f"Listo: {len(resultados)} notas analizadas ({errores} con error).")
+    print("\n--- COSTO REAL DEL LOTE ---")
+    print(f"  Modelo: {real.modelo}")
+    print(f"  Tokens entrada: {real.tokens_input:,}")
+    print(f"  Tokens salida:  {real.tokens_output:,}")
+    print(f"  COSTO REAL: ${real.costo_usd:,.4f} USD")
+    print(f"  (estimado previo: ${est.costo_usd:,.4f} USD)")
+
+    if args.salida:
+        import json
+
+        salida = {
+            aid: {k: v for k, v in r.items() if k != "_usage"} for aid, r in resultados.items()
+        }
+        with open(args.salida, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "modelo": real.modelo,
+                    "costo_usd": round(real.costo_usd, 4),
+                    "tokens_input": real.tokens_input,
+                    "tokens_output": real.tokens_output,
+                    "resultados": salida,
+                },
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
+        print(f"\nResultados guardados en: {args.salida}")
+
+    db.close()
+    return 0
+
+
 def cmd_social(args):
     """Busca en redes sociales (YouTube/TikTok/X), filtra por audiencia y guarda."""
     from social import buscar_social, filtrar_por_audiencia, fuentes_disponibles, publicacion_a_nota
@@ -758,6 +860,22 @@ def main(argv=None):
     sr = sub.add_parser("revisar", help="Revisión human-in-the-loop de entidades dudosas")
     sr.add_argument("--stats", action="store_true", help="Solo mostrar estadísticas")
     sr.set_defaults(func=cmd_revisar)
+
+    st = sub.add_parser(
+        "tono", help="Análisis de tono editorial con Claude (estima y registra el costo IA)"
+    )
+    st.add_argument("--db", default="datos/quac.db", help="Base de datos del corpus")
+    st.add_argument("--api-key", help="API key de Anthropic (o variable ANTHROPIC_API_KEY)")
+    st.add_argument(
+        "--modelo",
+        default="claude-haiku-4-5-20251001",
+        help="Modelo Claude (por defecto haiku-4-5, el más barato para tono)",
+    )
+    st.add_argument("--limite", type=int, default=0, help="Analizar solo las primeras N notas")
+    st.add_argument("--workers", type=int, default=4, help="Llamadas en paralelo")
+    st.add_argument("--salida", help="Guardar resultados+costo en este JSON")
+    st.add_argument("--si", action="store_true", help="No preguntar; ejecutar (flujos automáticos)")
+    st.set_defaults(func=cmd_tono)
 
     args = p.parse_args(argv)
     return args.func(args) or 0
