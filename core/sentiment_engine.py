@@ -133,6 +133,10 @@ def analizar_tono(
         resultado.setdefault("intensidad", "media")
         resultado.setdefault("indicadores", [])
         resultado.setdefault("resumen", "")
+        # Adjuntar el usage real para medir el costo del lote (lo recoge y retira
+        # analizar_corpus_tono). Clave interna con guion bajo: no es un campo de
+        # tono y no debe filtrarse a estadísticas/export.
+        resultado["_usage"] = getattr(msg, "usage", None)
         return resultado
     except Exception as e:
         return {
@@ -152,16 +156,21 @@ def analizar_corpus_tono(
     modelo: str = "claude-haiku-4-5-20251001",
     callback: Callable[[int, int, str], None] | None = None,
     workers: int = 4,
-) -> dict:
+    devolver_costo: bool = False,
+):
     """
     Analiza el tono de todos los artículos en paralelo.
 
     articulos: {art_id: texto}  o  {art_id: {"texto": ..., "seccion": ..., "numero": ..., "autor": ...}}
     Retorna: {art_id: resultado_tono}  — cada resultado incluye los metadatos originales.
+
+    Si `devolver_costo=True`, retorna `(resultados, CostoReal)` con el costo real
+    del lote leído del `usage` de Claude (estándar de estimación/registro de costo).
     """
     total = len(articulos)
     resultados = {}
     completados = [0]
+    _usages: list = []  # usage real de cada llamada, para el costo del lote
 
     def _analizar_uno(art_id, entrada):
         if isinstance(entrada, dict):
@@ -180,11 +189,20 @@ def analizar_corpus_tono(
         }
         for fut in as_completed(futures):
             art_id, res = fut.result()
+            # Retirar el usage interno del resultado para no contaminar
+            # estadísticas/export, y acumularlo para el costo real del lote.
+            u = res.pop("_usage", None)
+            if u is not None:
+                _usages.append(u)
             resultados[art_id] = res
             completados[0] += 1
             if callback:
                 callback(completados[0], total, art_id)
 
+    if devolver_costo:
+        from core.costos import costo_real_desde_usages
+
+        return resultados, costo_real_desde_usages(modelo, _usages)
     return resultados
 
 
