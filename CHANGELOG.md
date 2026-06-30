@@ -32,10 +32,12 @@ de costo completo.
   --excluir "Fujimori,Keiko,Boluarte,Florentino Pérez" --peso-minimo 2
   --dashboard datos/quac.dashboard.html --excel datos/quac.xlsx`.
 - Run 1 y 2 revelaron el split Petro/Cepeda → motivaron los fixes de acentos y
-  de semillas. **Run 3 (con TODOS los fixes) quedó corriendo al cerrar la
-  sesión (~30 %).** El `datos/quac.dashboard.html` en disco es del run 2 (aún
-  con el split). **PRIMER PASO próxima sesión: re-correr el comando de arriba y
-  verificar que Petro/Cepeda quedan en UN nodo cada uno.**
+  de semillas. **Run 3 (con TODOS los fixes) TERMINÓ OK (exit 0).** Verificado
+  el merge: Cepeda 1755+177→**Iván Cepeda Castro 1894** (un nodo); Petro
+  1036+463→**Gustavo Petro 1141** (un nodo); Espriella 2155. Grafo 48→**45
+  nodos** (sin duplicados), densidad 0.59. `datos/quac.dashboard.html` y
+  `datos/quac.xlsx` regenerados 07:35 con datos LIMPIOS. **El dashboard
+  publicable ya está listo.**
 - Backup `datos/quac.db.bak_20260630_0619` antes de tocar la BD.
 - Corpus tras filtro estricto: 3 572 → **2 575 notas** (descarta ~1 000 de ruido).
 - **14 118 entidades dudosas** en cola de revisión (HITL) — alto, revisar.
