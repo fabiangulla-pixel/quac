@@ -1,5 +1,66 @@
 # Changelog — ¡Quac!
 
+## Sesión 2026-06-30: costo IA cableado + 3 fixes de calidad de datos
+
+Sesión de "resolver pendientes". Además se **desactivó la tarea programada de
+Windows `Quac_Analisis_6am`** (a petición del usuario): queda `Disabled`,
+reactivable con `Enable-ScheduledTask -TaskName Quac_Analisis_6am`.
+
+### Estándar de costo IA — cableado a la CLI (antes era motor huérfano)
+
+| Commit | Qué |
+|--------|-----|
+| `ebd0817` | `core/costos.py` + `tests/test_costos.py` (10 tests) bajo control de versiones. Tabla de precios Claude, `estimar_lote_tono()`, `costo_real_desde_usages()`. `sentiment_engine.analizar_corpus_tono(devolver_costo=True)` → `(resultados, CostoReal)`. |
+| `0fbe2f7` | **Comando CLI `tono`**: estima volumen→tokens→USD, muestra el resumen, **pide confirmación antes de gastar** (`--si` para flujos automáticos), ejecuta el lote y reporta el **costo REAL** del usage. Lee titular+cuerpo de la BD; `--salida` guarda resultados+costo en JSON. 3 tests (cancelar NO llama a Claude; sin key falla; `--si` estima y ejecuta). Probado en `quac.db`: estima **$12.88 USD** para 3 572 notas y cancela sin gastar. |
+
+`analizar_corpus_tono` (Claude por lote) estaba implementado pero sin llamador.
+El pipeline usa `analizar_emociones` (léxico, offline) para el sentimiento; el
+motor Claude de tono ahora tiene su punto de disparo en la CLI con el estándar
+de costo completo.
+
+### Calidad de datos — 3 fixes de raíz (lección [[feedback_calidad_datos_antes_que_features]])
+
+| Commit | Causa raíz | Solución |
+|--------|------------|----------|
+| `d068f33` | Los enlaces de **Bing News RSS** (`apiclick.aspx?...&url=<medio real>`) NO se desenvolvían → la nota se guardaba con `medio="bing.com"` (ruido que llegaba al dashboard y a la muestra de validación). | `busqueda/motor._desenvolver_bing` extrae la URL real del parámetro `url=`. 2 tests. **Nota: arregla notas NUEVAS; las filas bing.com ya en `quac.db` siguen ahí (pendiente purgarlas).** |
+| `182c9f3` | La canonicalización emparejaba semillas **sensible a acentos**: "Ivan Cepeda" (sin tilde, frecuente en scraping) quedaba como nodo separado de la semilla "Iván Cepeda". | `canonicalizar_personas` + `_tokens_significativos` pliegan acentos con `_norm_rel`. +1 test. |
+| `4345798` | La tabla `entidades_interes` de la BD traía **semillas basura** ("Petro" e "Iván Cepeda" como canónicos PROPIOS, "Iván Cepeda Castro" sin variantes) que, al hacer `.update()`, **pisaban al perfil** y partían un actor en varios nodos del grafo. | `cli._combinar_semillas`: **el PERFIL manda** — descarta los canónicos de BD que son variante reclamada por el perfil y une variantes sin perder ninguna. +1 test. También: `analizar` gana `--estricto`, `--oblig`, `--excluir`, `--dashboard` (genera el HTML, antes solo la GUI). |
+
+### Reanálisis estricto del corpus publicable (EN CURSO al cerrar)
+
+- Se corrió `analizar --estricto --oblig "Cepeda,De la Espriella,Espriella"
+  --excluir "Fujimori,Keiko,Boluarte,Florentino Pérez" --peso-minimo 2
+  --dashboard datos/quac.dashboard.html --excel datos/quac.xlsx`.
+- Run 1 y 2 revelaron el split Petro/Cepeda → motivaron los fixes de acentos y
+  de semillas. **Run 3 (con TODOS los fixes) quedó corriendo al cerrar la
+  sesión (~30 %).** El `datos/quac.dashboard.html` en disco es del run 2 (aún
+  con el split). **PRIMER PASO próxima sesión: re-correr el comando de arriba y
+  verificar que Petro/Cepeda quedan en UN nodo cada uno.**
+- Backup `datos/quac.db.bak_20260630_0619` antes de tocar la BD.
+- Corpus tras filtro estricto: 3 572 → **2 575 notas** (descarta ~1 000 de ruido).
+- **14 118 entidades dudosas** en cola de revisión (HITL) — alto, revisar.
+
+### Validación Kappa — preparada, pendiente de codificación humana
+
+`datos/muestra_validacion_tono.csv` (50 notas, `polaridad_auto` poblada,
+`polaridad_manual` VACÍA). Decisión del usuario: **la codifica él a mano**; yo
+no invento la codificación (invalidaría el Kappa). Pendiente: regenerar la
+muestra desde el corpus LIMPIO (sin bing.com) tras el run 3, codificar y correr
+`python cli.py --db datos/quac.db validar --concordancia datos/muestra_validacion_tono.csv`.
+
+### Pendientes para la próxima sesión
+
+1. **Re-correr el reanálisis estricto** (comando arriba) y verificar Petro/Cepeda
+   en un solo nodo en el dashboard y la tabla de actores.
+2. **Purgar las filas `bing.com` ya en `quac.db`** (desenvolver su URL y
+   re-derivar el medio, o borrarlas) — el fix solo cubre notas nuevas.
+3. **Regenerar `muestra_validacion_tono.csv`** desde el corpus limpio para que
+   el usuario codifique el Kappa.
+4. Recompilar el `.exe` PRO (incluye `costos.py`, comando `tono`, los 3 fixes).
+5. Revisar la cola HITL (14 118 entidades dudosas es mucho).
+
+---
+
 ## Sesión 2026-06-25 (v0.16): panel técnico del grafo + control de calidad (git/lint/CI)
 
 Sesión doble: una funcionalidad nueva en el dashboard y la elevación del proyecto
