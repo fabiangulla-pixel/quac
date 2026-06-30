@@ -82,6 +82,30 @@ def test_canonicaliza_variantes_de_persona():
     assert len(claves_cepeda) == 1
 
 
+def test_canonicaliza_ignorando_acentos():
+    # "Ivan" (sin tilde, frecuente en el scraping) debe fundirse con la semilla
+    # acentuada "Iván Cepeda Castro"; igual "Petro" sin/ con espacios.
+    indice = {
+        "personas": {
+            "Ivan Cepeda": ["a1"],
+            "Iván Cepeda": ["a2"],
+            "Iván Cepeda Castro": ["a3"],
+            "Cepeda": ["a4"],
+            "Gustavo Petro": ["b1"],
+            "Petro": ["b2"],
+        }
+    }
+    semillas = {
+        "Iván Cepeda Castro": ["Iván Cepeda Castro", "Iván Cepeda", "Cepeda"],
+        "Gustavo Petro": ["Gustavo Petro", "Petro"],
+    }
+    out = canonicalizar_personas(indice, semillas=semillas)["personas"]
+    claves_cepeda = [k for k in out if "cepeda" in k.lower()]
+    assert len(claves_cepeda) == 1
+    assert set(out[claves_cepeda[0]]) == {"a1", "a2", "a3", "a4"}
+    assert set(out["Gustavo Petro"]) == {"b1", "b2"}
+
+
 # ── Tests del refuerzo de limpieza NER (sesión paper, 2026-06-20) ────────────
 
 

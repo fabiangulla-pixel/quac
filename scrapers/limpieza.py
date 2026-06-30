@@ -474,8 +474,12 @@ _PARTICULAS = {"de", "la", "del", "los", "las", "y", "san", "santa"}
 
 
 def _tokens_significativos(nombre: str) -> set[str]:
+    # _norm_rel pliega acentos: "Iván"/"Ivan" comparten token, así no se
+    # duplican actores por una tilde perdida en el OCR/scraping.
     return {
-        t.lower() for t in re.findall(r"\w+", nombre) if t.lower() not in _PARTICULAS and len(t) > 2
+        _norm_rel(t)
+        for t in re.findall(r"\w+", nombre)
+        if t.lower() not in _PARTICULAS and len(t) > 2
     }
 
 
@@ -494,11 +498,13 @@ def canonicalizar_personas(indice_global: dict, semillas: dict | None = None) ->
     if not isinstance(personas, dict) or not personas:
         return indice_global
 
-    # Mapa variante(lower) → canónico, a partir de las semillas del usuario.
+    # Mapa variante(normalizada, sin acentos) → canónico, a partir de las
+    # semillas del usuario. Plegar acentos evita que "Ivan Cepeda" (sin tilde,
+    # frecuente en el scraping) quede sin emparejar con la semilla "Iván Cepeda".
     semilla_map: dict[str, str] = {}
     for canon_nombre, formas in (semillas or {}).items():
         for f in formas:
-            semilla_map[f.lower()] = canon_nombre
+            semilla_map[_norm_rel(f)] = canon_nombre
 
     # Orden de más completo a menos (más tokens primero) → la forma larga gana.
     nombres = sorted(personas, key=lambda n: -len(_tokens_significativos(n)))
@@ -507,7 +513,7 @@ def canonicalizar_personas(indice_global: dict, semillas: dict | None = None) ->
 
     for nombre in nombres:
         # 1) ¿coincide con una semilla declarada por el usuario?
-        sem = semilla_map.get(nombre.lower())
+        sem = semilla_map.get(_norm_rel(nombre))
         if sem:
             canon[nombre] = sem
             continue
