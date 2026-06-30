@@ -301,6 +301,28 @@ def _leer_semillas_entidades(db) -> dict:
     return {r["nombre"]: json.loads(r["formas"]) for r in cur.fetchall()}
 
 
+def _combinar_semillas(db_sem: dict, perfil_sem: dict) -> dict:
+    """Combina las semillas de la BD con las del perfil — el PERFIL manda.
+
+    La tabla entidades_interes de la BD puede traer entradas incompletas o
+    duplicadas (p. ej. "Petro" registrado como canónico propio, o "Iván Cepeda
+    Castro" sin variantes). Si pisaran al perfil, partirían un mismo actor en
+    varios nodos del grafo. Por eso: (1) se descartan los canónicos de la BD que
+    en realidad son una variante reclamada por el perfil, y (2) se sobreescribe
+    con el perfil uniendo variantes, para no perder ninguna forma.
+    """
+    from scrapers.limpieza import _norm_rel
+
+    semillas = dict(db_sem)
+    reclamadas = {_norm_rel(v) for formas in perfil_sem.values() for v in formas}
+    for canon in list(semillas):
+        if _norm_rel(canon) in reclamadas and canon not in perfil_sem:
+            del semillas[canon]
+    for canon, formas in perfil_sem.items():
+        semillas[canon] = sorted(set(semillas.get(canon, [])) | set(formas))
+    return semillas
+
+
 def cmd_analizar(args):
     from core import network_engine
     from pipeline import analizar_corpus
@@ -311,10 +333,22 @@ def cmd_analizar(args):
         print("No hay notas que analizar. Usa 'scrape' primero.", file=sys.stderr)
         return 1
 
+    import config
     import revision
 
-    semillas = _leer_semillas_entidades(db)
+    perfil_sem = config.semillas_normalizacion(config.cargar())
+    semillas = _combinar_semillas(_leer_semillas_entidades(db), perfil_sem)
     decisiones = revision.cargar_decisiones(db)
+
+    oblig = [t.strip() for t in (args.oblig or "").split(",") if t.strip()]
+    excl = [t.strip() for t in (args.excluir or "").split(",") if t.strip()]
+    if args.estricto:
+        _log(
+            "Modo ESTRICTO: red/índice solo con actores del perfil"
+            + (f" · obligatorias: {oblig}" if oblig else "")
+            + (f" · excluir: {excl}" if excl else "")
+        )
+
     res = analizar_corpus(
         notas,
         api_key=args.api_key,
@@ -323,6 +357,9 @@ def cmd_analizar(args):
         semillas_entidades=semillas,
         usar_coref=not args.sin_coref,
         decisiones_revision=decisiones,
+        entidades_obligatorias=oblig,
+        excluir_terminos=excl,
+        solo_actores_relevantes=args.estricto,
         usar_transformer=args.transformer,
         usar_bertopic=args.bertopic,
         callback=_log,
@@ -421,6 +458,14 @@ def cmd_analizar(args):
             ruta_gephi = salida.with_suffix(".gexf")
             network_engine.exportar_gephi(G, ruta_gephi)
             print(f"Grafo Gephi (.gexf) exportado a: {ruta_gephi}")
+
+    # Dashboard HTML interactivo (lo mismo que genera la GUI)
+    if args.dashboard:
+        import dashboard
+
+        ruta_dash = Path(args.dashboard)
+        dashboard.generar_dashboard(res, notas, ruta_dash, titulo=f"¡Quac! — {ruta_dash.stem}")
+        print(f"\nDashboard interactivo: {ruta_dash}")
 
     # Volcado JSON opcional
     if args.json:
@@ -855,6 +900,22 @@ def main(argv=None):
     sa.add_argument(
         "--sin-coref", action="store_true", help="No resolver correferencias (más rápido)"
     )
+    sa.add_argument(
+        "--estricto",
+        action="store_true",
+        help="Modo publicable: red/índice SOLO con actores del perfil (descarta ruido)",
+    )
+    sa.add_argument(
+        "--oblig",
+        default="",
+        help="La nota DEBE mencionar ≥1 de estos términos (coma-separados)",
+    )
+    sa.add_argument(
+        "--excluir",
+        default="",
+        help="Descartar la nota si menciona ≥1 de estos términos (coma-separados)",
+    )
+    sa.add_argument("--dashboard", help="Generar el dashboard HTML interactivo en esta ruta")
     sa.set_defaults(func=cmd_analizar)
 
     sr = sub.add_parser("revisar", help="Revisión human-in-the-loop de entidades dudosas")

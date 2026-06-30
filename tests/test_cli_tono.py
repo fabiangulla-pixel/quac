@@ -67,6 +67,29 @@ def test_tono_sin_api_key_falla(tmp_path, monkeypatch):
     assert rc == 1
 
 
+def test_combinar_semillas_perfil_manda():
+    # La BD trae basura: "Petro" e "Iván Cepeda" como canónicos propios, y
+    # "Iván Cepeda Castro" sin variantes. El perfil debe imponerse y fundir todo.
+    db_sem = {
+        "Gustavo Petro": ["Gustavo Petro", "Gustavo"],
+        "Petro": ["Petro"],
+        "Iván Cepeda": ["Iván Cepeda"],
+        "Iván Cepeda Castro": ["Iván Cepeda Castro"],
+    }
+    perfil_sem = {
+        "Gustavo Petro": ["Gustavo Petro", "Petro"],
+        "Iván Cepeda Castro": ["Iván Cepeda Castro", "Iván Cepeda", "Cepeda"],
+    }
+    out = cli._combinar_semillas(db_sem, perfil_sem)
+    # Los canónicos-basura de la BD desaparecen (son variantes del perfil).
+    assert "Petro" not in out
+    assert "Iván Cepeda" not in out
+    # El perfil conserva y une variantes.
+    assert "Petro" in out["Gustavo Petro"]
+    assert "Cepeda" in out["Iván Cepeda Castro"]
+    assert "Iván Cepeda" in out["Iván Cepeda Castro"]
+
+
 def test_tono_estima_y_ejecuta_con_si(tmp_path, monkeypatch, capsys):
     ruta = _db_con_notas(tmp_path, n=2)
 
