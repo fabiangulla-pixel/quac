@@ -227,13 +227,37 @@ def buscar_site_search(
     for item in root.iterfind(".//item"):
         out.append(
             Resultado(
-                url=(item.findtext("link") or "").strip(),
+                url=_desenvolver_bing(item.findtext("link") or ""),
                 titular=(item.findtext("title") or "").strip(),
                 fecha=_parse_pubdate(item.findtext("pubDate") or ""),
                 fuente="site_search",
             )
         )
     return out
+
+
+def _desenvolver_bing(link: str) -> str:
+    """Extrae la URL real de un enlace redirector de Bing News.
+
+    Bing News RSS entrega enlaces tipo
+    ``bing.com/news/apiclick.aspx?...&url=https%3a%2f%2fmedio.co%2f...`` que
+    envuelven la URL del medio en el parámetro ``url``. Sin desenvolverlos, la
+    nota se guarda con medio="bing.com" (ruido en el corpus). Devuelve la URL
+    real cuando existe; si no, el enlace tal cual.
+    """
+    from urllib.parse import parse_qs, unquote, urlparse
+
+    link = (link or "").strip()
+    if "bing.com" not in link.lower():
+        return link
+    try:
+        qs = parse_qs(urlparse(link).query)
+        real = qs.get("url", [None])[0]
+        if real:
+            return unquote(real)
+    except Exception:
+        pass
+    return link
 
 
 # ── Orquestación ────────────────────────────────────────────────────────────

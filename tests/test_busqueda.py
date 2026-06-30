@@ -13,6 +13,20 @@ from busqueda import motor
 from busqueda.criterios import CriteriosBusqueda, EntidadInteres
 
 
+def test_desenvolver_bing_extrae_url_real():
+    # Los enlaces de Bing News envuelven la URL del medio en el parámetro url=.
+    link = (
+        "http://www.bing.com/news/apiclick.aspx?ref=FexRss&aid=&"
+        "url=https%3a%2f%2fwww.lafm.com.co%2fpolitica%2fcampana-401787&c=1"
+    )
+    assert motor._desenvolver_bing(link) == "https://www.lafm.com.co/politica/campana-401787"
+
+
+def test_desenvolver_bing_pasa_url_normal_sin_tocar():
+    assert motor._desenvolver_bing("https://eltiempo.com/nota") == "https://eltiempo.com/nota"
+    assert motor._desenvolver_bing("") == ""
+
+
 def test_entidad_todas_las_formas_sin_duplicados():
     e = EntidadInteres(
         "De la Espriella", "persona", ["Abelardo de la Espriella", "de la espriella", "Espriella"]
