@@ -329,6 +329,23 @@ class QuacGUI(tk.Tk):
             foreground="gray",
         ).pack(side="left", padx=8)
 
+        # Tono editorial con Claude (IA de pago): estándar de costo IA — la GUI
+        # estima el costo y pide confirmación ANTES de gastar, igual que
+        # `cli.py tono`. Reporta el costo REAL al terminar.
+        barra3 = ttk.Frame(f)
+        barra3.pack(fill="x", **pad)
+        self.btn_tono = ttk.Button(
+            barra3,
+            text="🧾 Tono editorial con Claude (estima el costo primero)",
+            command=self._lanzar_tono,
+        )
+        self.btn_tono.pack(side="left", padx=6)
+        ttk.Label(
+            barra3,
+            text="(IA de pago: muestra el costo estimado en USD y pide confirmación)",
+            foreground="gray",
+        ).pack(side="left", padx=8)
+
     # ---- PESTAÑA REDES SOCIALES ------------------------------------------
     def _construir_social(self):
         f = self.tab_social
@@ -740,6 +757,11 @@ class QuacGUI(tk.Tk):
                     messagebox.showinfo("¡Quac!", dato["msg"])
                     if ruta:
                         webbrowser.open(Path(ruta).resolve().as_uri())
+                elif tipo == "tono_fin":
+                    self.prog.stop()
+                    self.btn_tono.configure(state="normal")
+                    self._escribir(dato.replace("\n\n", "\n"))
+                    messagebox.showinfo("¡Quac! — Tono editorial (costo real)", dato)
                 elif tipo == "social_fin":
                     self.prog.stop()
                     self.btn_social.configure(state="normal")
@@ -758,6 +780,8 @@ class QuacGUI(tk.Tk):
                         self.btn_social.configure(state="normal")
                     if hasattr(self, "btn_analizar_bd"):
                         self.btn_analizar_bd.configure(state="normal")
+                    if hasattr(self, "btn_tono"):
+                        self.btn_tono.configure(state="normal")
                     messagebox.showerror("Error", dato)
         except queue.Empty:
             pass
@@ -1056,6 +1080,109 @@ class QuacGUI(tk.Tk):
             f"BD limpiada: -{res['borradas']} notas de ruido. "
             f"Quedan {res['quedan']}. Respaldo: {res['respaldo']}"
         )
+
+    def _lanzar_tono(self):
+        """Tono editorial con Claude aplicando el estándar de costo IA:
+        estima volumen→tokens→USD, muestra el desglose en un diálogo y SOLO
+        ejecuta si el usuario acepta. Al terminar reporta el costo REAL."""
+        import os
+
+        ruta = self._db_path.get().strip()
+        if not Path(ruta).exists():
+            messagebox.showwarning(
+                "¡Quac!",
+                f"No existe la base de datos:\n{ruta}\n\n"
+                "Elige un .db con «📂 Elegir…» o en la pestaña «1 · Buscar».",
+            )
+            return
+        api = self.e_apikey.get().strip() or os.environ.get("ANTHROPIC_API_KEY", "")
+        if not api:
+            messagebox.showwarning(
+                "¡Quac!",
+                "Falta la API key de Claude.\n\nPégala en el campo «API key Claude» "
+                "de esta pestaña (o define la variable de entorno ANTHROPIC_API_KEY).",
+            )
+            return
+        try:
+            db = BaseDatos(ruta)
+            notas = db.todas_las_notas()
+            db.close()
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
+            return
+        articulos = {}
+        for n in notas:
+            texto = ((n.get("titular") or "") + "\n\n" + (n.get("cuerpo") or "")).strip()
+            if texto:
+                articulos[str(n["id"])] = texto
+        if not articulos:
+            messagebox.showinfo("¡Quac!", "La BD no tiene notas con texto para analizar.")
+            return
+        from core import costos
+
+        est = costos.estimar_lote_tono(articulos)
+        if not messagebox.askyesno(
+            "Costo estimado — confirmar antes de gastar",
+            est.resumen() + "\n\n¿Ejecutar el análisis de tono con este costo?",
+            icon="warning",
+        ):
+            self._escribir("Tono editorial cancelado. No se gastó nada.")
+            return
+        self.btn_tono.configure(state="disabled")
+        self.prog.start()
+        self._escribir(f"Analizando tono de {len(articulos)} notas con Claude…")
+        threading.Thread(
+            target=self._worker_tono, args=(ruta, api, articulos, est), daemon=True
+        ).start()
+
+    def _worker_tono(self, ruta, api, articulos, est):
+        log = lambda m: self._cola.put(("log", m))
+        try:
+            import json
+
+            from core import sentiment_engine
+
+            def _prog(hechos, total, _id):
+                if hechos % 25 == 0 or hechos == total:
+                    log(f"  tono {hechos}/{total}")
+
+            resultados, real = sentiment_engine.analizar_corpus_tono(
+                articulos, api_key=api, callback=_prog, devolver_costo=True
+            )
+            errores = sum(1 for r in resultados.values() if r.get("error"))
+            # Guardar junto a la BD (mismo formato que `cli.py tono --salida`).
+            salida = Path(ruta).with_suffix(".tono.json")
+            limpio = {
+                aid: {k: v for k, v in r.items() if k != "_usage"} for aid, r in resultados.items()
+            }
+            salida.write_text(
+                json.dumps(
+                    {
+                        "modelo": real.modelo,
+                        "costo_usd": round(real.costo_usd, 4),
+                        "tokens_input": real.tokens_input,
+                        "tokens_output": real.tokens_output,
+                        "resultados": limpio,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            self._cola.put(
+                (
+                    "tono_fin",
+                    f"Tono listo: {len(resultados)} notas ({errores} con error).\n\n"
+                    f"COSTO REAL: ${real.costo_usd:,.4f} USD "
+                    f"(estimado: ${est.costo_usd:,.4f})\n"
+                    f"Tokens: {real.tokens_input:,} entrada / {real.tokens_output:,} salida\n\n"
+                    f"Resultados guardados en:\n{salida}",
+                )
+            )
+        except Exception as e:
+            import traceback
+
+            self._cola.put(("error", f"{e}\n\n{traceback.format_exc()}"))
 
     def _lanzar_analizar_bd(self):
         """Analiza directamente lo que ya está guardado en la BD (sin buscar

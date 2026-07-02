@@ -65,6 +65,39 @@ def _score_confianza_nota(nota: dict) -> dict:
     }
 
 
+def filtrar_relevantes(
+    notas: list[dict],
+    entidades_obligatorias: list | None = None,
+    excluir_terminos: list | None = None,
+) -> list[dict]:
+    """Filtro de relevancia temática sobre titular+cuerpo, sin acentos/mayúsculas.
+
+    - entidades_obligatorias: la nota debe mencionar ≥1 de estos términos.
+    - excluir_terminos: se descarta si menciona ≥1 de estos.
+    Es EL MISMO filtro del modo estricto de analizar_corpus; también lo usa
+    `cli.py validar` para que la muestra Kappa salga del corpus del estudio.
+    """
+    import unicodedata
+
+    def _norm_txt(s):
+        s = unicodedata.normalize("NFKD", str(s or "").lower())
+        return "".join(c for c in s if not unicodedata.combining(c))
+
+    oblig = [_norm_txt(t) for t in (entidades_obligatorias or []) if str(t).strip()]
+    excl = [_norm_txt(t) for t in (excluir_terminos or []) if str(t).strip()]
+    if not (oblig or excl):
+        return notas
+    filtradas = []
+    for nt in notas:
+        txt = _norm_txt((nt.get("titular") or "") + " " + (nt.get("cuerpo") or ""))
+        if oblig and not any(t in txt for t in oblig):
+            continue
+        if excl and any(t in txt for t in excl):
+            continue
+        filtradas.append(nt)
+    return filtradas
+
+
 def analizar_corpus(
     notas: list[dict],
     *,
@@ -143,35 +176,16 @@ def analizar_corpus(
 
     # Filtro de RELEVANCIA temática (combate el ruido de la búsqueda masiva:
     # notas de Perú/Fujimori, Florentino Pérez, etc. que coinciden en vocabulario
-    # pero no son sobre la elección de interés). Opt-in:
-    #  - entidades_obligatorias: la nota debe mencionar ≥1 de estos términos.
-    #  - excluir_terminos: se descarta si menciona ≥1 de estos.
-    # Se busca en titular + cuerpo, sin distinguir acentos/mayúsculas.
-    def _norm_txt(s):
-        import unicodedata
-
-        s = unicodedata.normalize("NFKD", str(s or "").lower())
-        return "".join(c for c in s if not unicodedata.combining(c))
-
-    oblig = [_norm_txt(t) for t in (entidades_obligatorias or []) if str(t).strip()]
-    excl = [_norm_txt(t) for t in (excluir_terminos or []) if str(t).strip()]
-    if oblig or excl:
+    # pero no son sobre la elección de interés). Opt-in.
+    if entidades_obligatorias or excluir_terminos:
         antes = len(notas)
-        filtradas = []
-        for nt in notas:
-            txt = _norm_txt((nt.get("titular") or "") + " " + (nt.get("cuerpo") or ""))
-            if oblig and not any(t in txt for t in oblig):
-                continue
-            if excl and any(t in txt for t in excl):
-                continue
-            filtradas.append(nt)
+        notas = filtrar_relevantes(notas, entidades_obligatorias, excluir_terminos)
         det = []
-        if oblig:
+        if entidades_obligatorias:
             det.append("mencionan ≥1 actor de interés")
-        if excl:
+        if excluir_terminos:
             det.append("sin términos excluidos")
-        log(f"Filtro de relevancia ({', '.join(det)}): {len(filtradas)}/{antes} notas.")
-        notas = filtradas
+        log(f"Filtro de relevancia ({', '.join(det)}): {len(notas)}/{antes} notas.")
 
     total = len(notas)
     for i, nota in enumerate(notas, 1):

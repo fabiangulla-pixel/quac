@@ -64,3 +64,22 @@ def test_concordancia_sin_codificar(tmp_path):
     r = validacion.calcular_concordancia(ruta)
     assert r["n"] == 0
     assert "error" in r
+
+
+def test_filtrar_relevantes_como_estricto():
+    """La muestra Kappa usa el MISMO filtro de relevancia del modo estricto."""
+    from pipeline import filtrar_relevantes
+
+    notas = [
+        {"url": "a", "titular": "Iván Cepeda gana terreno", "cuerpo": "elecciones"},
+        {"url": "b", "titular": "Keiko Fujimori en Perú", "cuerpo": "elecciones"},
+        {"url": "c", "titular": "De la Espriella responde", "cuerpo": "campaña"},
+        {"url": "d", "titular": "Peso colombiano sube", "cuerpo": "mercados"},
+    ]
+    res = filtrar_relevantes(notas, ["Cepeda", "Espriella"], ["Fujimori"])
+    assert [n["url"] for n in res] == ["a", "c"]
+    # plegado de acentos: "Ivan" (sin tilde) también matchea
+    res2 = filtrar_relevantes(notas, ["ivan cepeda"], None)
+    assert [n["url"] for n in res2] == ["a"]
+    # sin filtros = pasa todo
+    assert filtrar_relevantes(notas) == notas

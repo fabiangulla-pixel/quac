@@ -568,6 +568,17 @@ def cmd_validar(args):
     if not notas:
         print("No hay notas. Analiza un corpus primero.", file=sys.stderr)
         return 1
+    # Mismo filtro de relevancia del modo estricto: la muestra Kappa debe salir
+    # del MISMO corpus del estudio (sin ruido de Perú/Florentino), o el
+    # inter-codificador validaría notas que el paper ni siquiera usa.
+    oblig = [t.strip() for t in (getattr(args, "oblig", "") or "").split(",") if t.strip()]
+    excl = [t.strip() for t in (getattr(args, "excluir", "") or "").split(",") if t.strip()]
+    if oblig or excl:
+        from pipeline import filtrar_relevantes
+
+        antes = len(notas)
+        notas = filtrar_relevantes(notas, oblig, excl)
+        print(f"Filtro de relevancia: {len(notas)}/{antes} notas del corpus del estudio.")
     # incluir polaridad automática: leer del JSON de sentimiento guardado
     import json
 
@@ -807,6 +818,10 @@ def main(argv=None):
     sv.add_argument("--salida", help="Ruta CSV de la muestra a exportar")
     sv.add_argument("--n", type=int, default=30, help="Tamaño de la muestra (default 30)")
     sv.add_argument("--concordancia", help="CSV ya codificado: calcula acuerdo + Kappa")
+    sv.add_argument(
+        "--oblig", help="La nota debe mencionar ≥1 (coma-separado); igual que en analizar"
+    )
+    sv.add_argument("--excluir", help="Descartar notas que mencionen alguno (coma-separado)")
     sv.set_defaults(func=cmd_validar)
 
     sp = sub.add_parser("scrape", help="Scrapear y guardar notas")
