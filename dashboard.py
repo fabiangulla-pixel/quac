@@ -168,6 +168,20 @@ _PLANTILLA = r"""<!DOCTYPE html>
  .mut{color:var(--mut)} .big{font-size:26px;font-weight:700}
  mark{background:#3a4660;color:#fff;border-radius:3px;padding:0 2px}
  #red{height:72vh;background:#0c0e13;border:1px solid #262b36;border-radius:12px}
+ #redbox{background:radial-gradient(ellipse at 50% 38%,#161c2a 0%,#0a0c11 75%);
+   border:1px solid #262b36;border-radius:12px;position:relative;overflow:hidden}
+ .seg{display:inline-flex;border:1px solid #2b313c;border-radius:9px;overflow:hidden}
+ .seg button{background:#151a22;color:var(--mut);border:none;padding:7px 16px;cursor:pointer;font-weight:600;font-size:13px}
+ .seg button.act{background:var(--acc);color:#06121f}
+ .leyenda{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+ .lg-chip{display:inline-flex;align-items:center;gap:6px;background:#1a2029;border:1px solid #2b313c;
+   border-radius:14px;padding:3px 12px;font-size:12px;cursor:pointer;user-select:none;transition:opacity .15s}
+ .lg-chip.off{opacity:.32;filter:grayscale(.85)}
+ .lg-chip:hover{border-color:var(--acc)}
+ .btn-acc{background:#222a38;color:var(--fg);border:1px solid #2b313c;border-radius:8px;
+   padding:6px 12px;font-size:12px;cursor:pointer}
+ .btn-acc:hover{background:var(--acc);color:#06121f}
+ .btn-acc.act{background:var(--ok);color:#06121f;border-color:var(--ok)}
  .controles{display:flex;gap:10px;align-items:center;margin:8px 0;flex-wrap:wrap}
  canvas.chart{max-height:240px}
  .leg{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:middle}
@@ -431,56 +445,70 @@ function barRow(label,n,max,onclick){
   }
 })();
 
-// ---- RED INTERACTIVA (vis-network) ----
+// ---- RED INTERACTIVA (vis-network 2D + 3d-force-graph) ----
 let _redInit=false, _net2d=null, _fg3d=null, _modoRed="2d";
-function _datosRed(filtroTipo, soloVecinosDe){
+const _catsOff=new Set();   // categorías apagadas desde la leyenda
+// Paleta moderna por categoría. Manda sobre el color que traiga el backend,
+// así los dashboards generados con datos viejos también estrenan diseño.
+const PALETA_CAT={personas:"#ff6b81",organizaciones:"#54a0ff",lugares:"#2ed8a7",
+  fechas:"#feca57",obras_publicaciones:"#c56cf0",eventos_historicos:"#48dbfb"};
+const colorCat=c=>PALETA_CAT[c]||"#8395a7";
+const _sombra=(hex,f)=>{const n=parseInt(hex.slice(1),16);
+  return "rgb("+[16,8,0].map(s=>Math.round(((n>>s)&255)*f)).join(",")+")";};
+function _datosRed(soloVecinosDe){
   const g=D.grafo||{}; let nodos=g.nodes||[], aristas=g.edges||[];
-  if(filtroTipo && filtroTipo!=="todos") nodos=nodos.filter(n=>(n.categoria||"")===filtroTipo);
-  if(soloVecinosDe){ // ego-red: nodo + vecinos directos
+  if(_catsOff.size) nodos=nodos.filter(n=>!_catsOff.has(n.categoria||""));
+  if(soloVecinosDe){ // ego-red: nodo + vecinos directos (sin límite de nodos)
     const vec=new Set([soloVecinosDe]);
     aristas.forEach(e=>{ if(e.source===soloVecinosDe)vec.add(e.target); if(e.target===soloVecinosDe)vec.add(e.source);});
     nodos=nodos.filter(n=>vec.has(n.id));
+  } else {
+    // Limitar a los N más conectados (control "Nodos") para que sea legible.
+    const sel=$("#red-topn"); const LIMITE=sel?parseInt(sel.value,10):60;
+    if(nodos.length > LIMITE){
+      const grado={};
+      aristas.forEach(e=>{ grado[e.source]=(grado[e.source]||0)+(e.weight||1);
+                           grado[e.target]=(grado[e.target]||0)+(e.weight||1); });
+      nodos=nodos.slice().sort((a,b)=>(grado[b.id]||0)-(grado[a.id]||0)).slice(0,LIMITE);
+    }
   }
   const ids=new Set(nodos.map(n=>n.id));
   aristas=aristas.filter(e=>ids.has(e.source)&&ids.has(e.target));
   return {nodos, aristas};
 }
-function dibujar2D(filtroTipo, ego){
+function dibujar2D(ego){
   if(!window.vis){ $("#redbox").innerHTML="<div class='mut'>Sin internet: no se cargó vis-network.</div>"; return; }
-  let {nodos,aristas}=_datosRed(filtroTipo,ego);
-
-  // Limitar a los N nodos más conectados para que sea legible (evita "nube de
-  // moscas"). El usuario puede aislar un actor para ver su sub-red completa.
-  const LIMITE = 60;
-  if(nodos.length > LIMITE){
-    const grado = {};
-    aristas.forEach(e=>{ grado[e.source]=(grado[e.source]||0)+(e.weight||1);
-                         grado[e.target]=(grado[e.target]||0)+(e.weight||1); });
-    nodos = nodos.slice().sort((a,b)=>(grado[b.id]||0)-(grado[a.id]||0)).slice(0,LIMITE);
-    const ids=new Set(nodos.map(n=>n.id));
-    aristas = aristas.filter(e=>ids.has(e.source)&&ids.has(e.target));
-  }
+  const {nodos,aristas}=_datosRed(ego);
   // Umbral de etiqueta: solo los nodos importantes muestran texto fijo; el resto
   // al pasar el cursor. Reduce el amontonamiento.
   const freqs = nodos.map(n=>n.freq||1).sort((a,b)=>b-a);
   const umbralEtq = freqs[Math.min(freqs.length-1, 24)] || 1;
+  const pmax = aristas.reduce((m,e)=>Math.max(m,e.weight||1),1);
 
-  const vnodes=nodos.map(n=>({id:n.id,
+  const vnodes=nodos.map(n=>{const c=colorCat(n.categoria); return {id:n.id,
     label:(n.freq||1)>=umbralEtq ? n.id : " ",   // etiqueta solo si relevante
-    color:n.color||"#4ea1ff", value:(n.freq||1),
+    color:{background:c,border:_sombra(c,0.55),
+           highlight:{background:"#ffffff",border:c},hover:{background:c,border:"#ffffff"}},
+    value:(n.freq||1),
     title:n.id+" · "+(n.categoria||"")+" · "+(n.freq||1)+" notas",
-    font:{color:"#e6e6e6",size:15,strokeWidth:3,strokeColor:"#0c0e13"}}));
-  const vedges=aristas.map(e=>({from:e.source,to:e.target,value:e.weight||1,
-    color:{color:"#2b313c",highlight:"#4ea1ff",hover:"#4ea1ff"}}));
+    font:{color:"#eef2f8",size:15,face:"Segoe UI",strokeWidth:4,strokeColor:"#0a0c11"}};});
+  // Aristas: grosor Y opacidad proporcionales al peso (las relaciones fuertes
+  // se VEN fuertes; las débiles se insinúan sin ensuciar).
+  const colorBase=i=>"rgba(126,146,176,"+(0.16+0.5*((aristas[i].weight||1)/pmax)).toFixed(2)+")";
+  const vedges=aristas.map((e,i)=>({id:i,from:e.source,to:e.target,value:e.weight||1,
+    color:{color:colorBase(i),highlight:"#4ea1ff",hover:"#4ea1ff"}}));
   const cont=document.getElementById("redbox"); cont.innerHTML="";
   const datos={nodes:new vis.DataSet(vnodes),edges:new vis.DataSet(vedges)};
   _net2d=new vis.Network(cont, datos, {
-    nodes:{shape:"dot",scaling:{min:8,max:46,label:{enabled:true,min:12,max:30}}},
-    edges:{smooth:false},   // líneas rectas = menos caos visual
+    nodes:{shape:"dot",borderWidth:2,borderWidthSelected:3,
+      shadow:{enabled:true,color:"rgba(0,0,0,0.45)",size:12,x:0,y:3},
+      scaling:{min:9,max:48,label:{enabled:true,min:12,max:30}}},
+    edges:{smooth:{enabled:true,type:"continuous",roundness:0.35},
+      scaling:{min:1,max:6},selectionWidth:2,hoverWidth:1.6},
     layout:{improvedLayout:true},
     physics:{solver:"forceAtlas2Based",
-      forceAtlas2Based:{gravitationalConstant:-60,centralGravity:0.012,
-                        springLength:120,springConstant:0.10,avoidOverlap:1},
+      forceAtlas2Based:{gravitationalConstant:-70,centralGravity:0.012,
+                        springLength:130,springConstant:0.09,avoidOverlap:1},
       stabilization:{enabled:true,iterations:400,updateInterval:25,fit:true},
       minVelocity:0.6},
     interaction:{hover:true,tooltipDelay:100,navigationButtons:true,
@@ -490,26 +518,35 @@ function dibujar2D(filtroTipo, ego){
   _net2d.once("stabilizationIterationsDone", function(){
     _net2d.setOptions({physics:false}); _net2d.fit();
   });
-  // resaltar vecinos al hacer hover atenuando el resto
+  // FOCO de vecindario al pasar el cursor: vecinos a color; el RESTO —nodos y
+  // también aristas— se apaga, y las aristas propias se encienden en azul.
+  const conexPor={}; aristas.forEach((e,i)=>{ (conexPor[e.source]=conexPor[e.source]||[]).push(i);
+                                              (conexPor[e.target]=conexPor[e.target]||[]).push(i); });
   _net2d.on("hoverNode", function(p){
     const con=new Set([p.node]);
     _net2d.getConnectedNodes(p.node).forEach(x=>con.add(x));
     datos.nodes.update(nodos.map(n=>({id:n.id,
-      opacity: con.has(n.id)?1:0.15,
+      opacity: con.has(n.id)?1:0.12,
       label:(con.has(n.id) || (n.freq||1)>=umbralEtq)?n.id:" "})));
+    const mios=new Set(conexPor[p.node]||[]);
+    datos.edges.update(vedges.map(e=>({id:e.id,
+      color: mios.has(e.id)?{color:"#4ea1ff"}:{color:"rgba(126,146,176,0.04)"}})));
   });
   _net2d.on("blurNode", function(){
     datos.nodes.update(nodos.map(n=>({id:n.id,opacity:1,
       label:(n.freq||1)>=umbralEtq?n.id:" "})));
+    datos.edges.update(vedges.map(e=>({id:e.id,
+      color:{color:colorBase(e.id),highlight:"#4ea1ff",hover:"#4ea1ff"}})));
   });
   _net2d.on("click",p=>{ if(p.nodes.length && personas[p.nodes[0]]) verActor(p.nodes[0]); });
 }
-function dibujar3D(filtroTipo, ego){
+function dibujar3D(ego){
   if(!window.ForceGraph3D){ $("#redbox").innerHTML="<div class='mut'>Sin internet: no se cargó 3d-force-graph.</div>"; return; }
-  const {nodos,aristas}=_datosRed(filtroTipo,ego);
+  const {nodos,aristas}=_datosRed(ego);
   // grado de cada nodo (nº de conexiones) → tamaño/relevancia visual
   const grado={}; aristas.forEach(e=>{grado[e.source]=(grado[e.source]||0)+1;grado[e.target]=(grado[e.target]||0)+1;});
-  const data={nodes:nodos.map(n=>({id:n.id,color:n.color||"#4ea1ff",
+  const pmax=aristas.reduce((m,e)=>Math.max(m,e.weight||1),1);
+  const data={nodes:nodos.map(n=>({id:n.id,color:colorCat(n.categoria),
       val:Math.max(1,(grado[n.id]||0)),freq:n.freq||1,cat:n.categoria,deg:grado[n.id]||0})),
     links:aristas.map(e=>({source:e.source,target:e.target,w:e.weight||1}))};
   // umbral para mostrar etiqueta SIEMPRE solo en los nodos importantes (evita
@@ -522,22 +559,29 @@ function dibujar3D(filtroTipo, ego){
   function makeLabel(n){
     if(!window.SpriteText) return null;
     const s=new SpriteText(n.id);
-    s.color="#e9edf5"; s.textHeight=Math.max(4,Math.min(9,4+n.deg*0.5));
-    s.backgroundColor="rgba(12,14,19,0.6)"; s.padding=1.5; s.borderRadius=2;
+    s.color="#eef2f8"; s.textHeight=Math.max(4,Math.min(9,4+n.deg*0.5));
+    s.backgroundColor="rgba(10,12,17,0.65)"; s.padding=1.5; s.borderRadius=2;
     s.position.y=-(6+Math.cbrt(n.val)*2);  // debajo del nodo
     return s;
   }
 
-  _fg3d=ForceGraph3D()(cont)
-    .backgroundColor("#0c0e13").graphData(data)
+  // preserveDrawingBuffer permite capturar el canvas → botón 📷 PNG.
+  _fg3d=ForceGraph3D({rendererConfig:{preserveDrawingBuffer:true,antialias:true}})(cont)
+    .backgroundColor("#0a0c11").graphData(data)
     .nodeColor(n=>n.color)
     .nodeVal(n=>n.val)
     .nodeRelSize(5)                              // nodos más grandes y diferenciados
     .nodeOpacity(0.95)
-    .nodeResolution(12)                          // esferas más suaves
+    .nodeResolution(16)                          // esferas más suaves
     .nodeLabel(n=>"<b>"+n.id+"</b> · "+(n.cat||"")+" · "+n.deg+" conexiones")
-    .linkColor(()=>"#3a4250").linkWidth(l=>Math.min(2.5,0.4+l.w*0.3))
-    .linkOpacity(0.35).linkDirectionalParticles(0)
+    // Aristas: opacidad y grosor por peso; partículas viajando por las
+    // relaciones más fuertes (la red se lee y además se ve VIVA).
+    .linkColor(l=>"rgba(126,156,205,"+(0.12+0.45*(l.w/pmax)).toFixed(2)+")")
+    .linkWidth(l=>Math.min(3,0.3+l.w*0.35))
+    .linkOpacity(0.85)
+    .linkDirectionalParticles(l=> l.w>=pmax*0.6 ? 2 : 0)
+    .linkDirectionalParticleWidth(1.6)
+    .linkDirectionalParticleSpeed(0.0045)
     .width(cont.clientWidth).height(cont.clientHeight)
     // ETIQUETAS 3D: sprite de texto bajo los nodos importantes (deg>=umbral).
     .nodeThreeObjectExtend(true)
@@ -564,27 +608,40 @@ function dibujar3D(filtroTipo, ego){
   _fg3d.onNodeRightClick&&_fg3d.onNodeRightClick(n=>{ n.fx=null;n.fy=null;n.fz=null; });
 }
 function renderRed(){
-  const tipo=$("#red-tipo").value, ego=$("#red-ego").value||null;
-  if(_modoRed==="3d") dibujar3D(tipo,ego); else dibujar2D(tipo,ego);
+  const ego=$("#red-ego").value||null;
+  if(_modoRed==="3d") dibujar3D(ego); else dibujar2D(ego);
 }
 function dibujarRed(){ if(_redInit) return; _redInit=true; renderRed(); }
 (function(){const c=$("#t-red");
   const g=D.grafo||{};
   if(!(g.nodes||[]).length){ c.innerHTML="<div class='card mut'>Red vacía: pocas notas comparten actores. Baja el umbral de red al analizar.</div>"; return; }
+  const NOMBRES_CAT={personas:"Personas",organizaciones:"Organizaciones",lugares:"Lugares",
+    fechas:"Fechas",obras_publicaciones:"Obras",eventos_historicos:"Eventos"};
+  // categorías realmente presentes en el grafo, con conteo de nodos
+  const nCat={}; (g.nodes||[]).forEach(n=>{const k=n.categoria||"otros"; nCat[k]=(nCat[k]||0)+1;});
   // barra de controles
   const ctr=el("div","controles");
   ctr.innerHTML=
-    "<b>Red de actores</b>"+
-    " <button id='b2d' class='chip'>2D</button><button id='b3d' class='chip'>3D rotable</button>"+
-    " &nbsp;Tipo: <select id='red-tipo'><option value='todos'>todos</option>"+
-      "<option value='personas'>personas</option><option value='organizaciones'>organizaciones</option>"+
-      "<option value='lugares'>lugares</option></select>"+
-    " &nbsp;Aislar actor: <select id='red-ego'><option value=''>(toda la red)</option>"+
+    "<span class='seg'><button id='b2d' class='act'>2D</button><button id='b3d'>3D rotable</button></span>"+
+    " <input id='red-buscar' list='red-actores' placeholder='🔍 Buscar actor…' style='min-width:180px'>"+
+    "<datalist id='red-actores'>"+(g.nodes||[]).map(n=>"<option>"+n.id+"</option>").join("")+"</datalist>"+
+    " Aislar: <select id='red-ego'><option value=''>(toda la red)</option>"+
       Object.keys(personas).sort().map(p=>"<option>"+p+"</option>").join("")+"</select>"+
-    " <button id='b-reset' class='chip'>↺</button>"+
-    " <button id='b-mano' class='chip' title='Controla la red 3D con gestos de la mano (necesita cámara y modo 3D)'>✋ Mano</button>";
+    " Nodos: <select id='red-topn'><option>40</option><option selected>60</option>"+
+      "<option>100</option><option>150</option><option value='9999'>todos</option></select>"+
+    " <button id='b-png' class='btn-acc' title='Descargar la red como imagen PNG (figura para el paper)'>📷 PNG</button>"+
+    " <button id='b-reset' class='btn-acc' title='Restablecer filtros'>↺</button>"+
+    " <button id='b-mano' class='btn-acc' title='Controla la red con gestos de la mano (necesita cámara)'>✋ Mano</button>";
   c.appendChild(ctr);
-  c.appendChild(el("div","mut","Muestra los ~60 actores más conectados (se estabiliza y se congela; ya no vibra). Para ver la sub-red completa de alguien, usa «Aislar actor». 2D: arrastra nodos · rueda zoom · pasa el cursor para resaltar vecinos. 3D: arrastra para ROTAR · rueda zoom. Clic en nodo = abrir ficha."));
+  // leyenda de categorías: clic = ocultar/mostrar esa categoría en la red
+  const ley=el("div","leyenda");
+  ley.innerHTML="<span class='mut' style='font-size:12px'>Categorías:</span>"+
+    Object.keys(nCat).map(k=>
+      "<span class='lg-chip' data-cat='"+k+"'><span class='leg' style='background:"+colorCat(k)+"'></span>"+
+      (NOMBRES_CAT[k]||k)+" <b>"+nCat[k]+"</b></span>").join("")+
+    "<span class='mut' style='font-size:11px;margin-left:6px'>(clic para ocultar/mostrar)</span>";
+  c.appendChild(ley);
+  c.appendChild(el("div","mut","Pasa el cursor sobre un nodo para iluminar su vecindario · arrastra nodos · rueda = zoom · clic en nodo = ficha del actor. En 3D arrastra para ROTAR; las partículas recorren las relaciones más fuertes."));
   // Contenedor flex: visualización (izq) + panel de info técnica (der).
   const wrap=el("div","red-wrap");
   wrap.innerHTML="<div id='redbox' style='height:72vh'></div><div id='study-mount'></div>";
@@ -599,9 +656,29 @@ function dibujarRed(){ if(_redInit) return; _redInit=true; renderRed(); }
   // listeners
   $("#b2d").onclick=()=>{_modoRed="2d";$("#b2d").classList.add("act");$("#b3d").classList.remove("act");renderRed();};
   $("#b3d").onclick=()=>{_modoRed="3d";$("#b3d").classList.add("act");$("#b2d").classList.remove("act");renderRed();};
-  $("#red-tipo").onchange=renderRed; $("#red-ego").onchange=renderRed;
-  $("#b-reset").onclick=()=>{$("#red-tipo").value="todos";$("#red-ego").value="";renderRed();};
-  $("#b2d").classList.add("act");
+  $("#red-ego").onchange=renderRed; $("#red-topn").onchange=renderRed;
+  $("#b-reset").onclick=()=>{$("#red-ego").value="";$("#red-buscar").value="";_catsOff.clear();
+    ley.querySelectorAll(".lg-chip").forEach(x=>x.classList.remove("off"));renderRed();};
+  ley.querySelectorAll(".lg-chip").forEach(ch=>{ch.onclick=()=>{
+    const k=ch.dataset.cat;
+    if(_catsOff.has(k)){_catsOff.delete(k);ch.classList.remove("off");}
+    else{_catsOff.add(k);ch.classList.add("off");}
+    renderRed();};});
+  // buscador: centra la cámara en el actor elegido (2D y 3D)
+  $("#red-buscar").onchange=()=>{const q=$("#red-buscar").value.trim(); if(!q)return;
+    if(_modoRed==="2d"&&_net2d){ try{_net2d.selectNodes([q]);
+      _net2d.focus(q,{scale:1.15,animation:{duration:700}});}catch(e){} }
+    else if(_fg3d){ const n=(_fg3d.graphData().nodes||[]).find(x=>x.id===q);
+      if(n&&n.x!=null){const d=90,r=Math.hypot(n.x,n.y,n.z)||1;
+        _fg3d.cameraPosition({x:n.x*(1+d/r),y:n.y*(1+d/r),z:n.z*(1+d/r)},n,1000);}}};
+  // exportar la red como imagen PNG con fondo (figura lista para el paper)
+  $("#b-png").onclick=()=>{
+    const cv=document.querySelector("#redbox canvas"); if(!cv) return;
+    const out=document.createElement("canvas"); out.width=cv.width; out.height=cv.height;
+    const cx=out.getContext("2d"); cx.fillStyle="#0a0c11"; cx.fillRect(0,0,out.width,out.height);
+    cx.drawImage(cv,0,0);
+    const a=document.createElement("a"); a.download="quac_red.png";
+    a.href=out.toDataURL("image/png"); a.click();};
 
   // --- Control por gestos de mano (webcam) sobre el grafo 3D --------------
   // Indicador discreto en una esquina del contenedor de la red.

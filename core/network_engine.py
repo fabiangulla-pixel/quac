@@ -21,13 +21,15 @@ CATEGORIAS_DISPONIBLES = (
     "eventos_historicos",
 )
 
+# Paleta alineada con la del dashboard (PALETA_CAT en dashboard.py): así el
+# GEXF para Gephi y el HTML de pyvis usan los mismos colores que la app.
 _COLOR_CAT = {
-    "personas": "#E74C3C",
-    "lugares": "#27AE60",
-    "organizaciones": "#2980B9",
-    "fechas": "#F39C12",
-    "obras_publicaciones": "#8E44AD",
-    "eventos_historicos": "#16A085",
+    "personas": "#ff6b81",
+    "lugares": "#2ed8a7",
+    "organizaciones": "#54a0ff",
+    "fechas": "#feca57",
+    "obras_publicaciones": "#c56cf0",
+    "eventos_historicos": "#48dbfb",
 }
 
 
