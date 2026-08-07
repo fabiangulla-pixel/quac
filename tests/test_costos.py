@@ -33,6 +33,24 @@ def test_modelo_con_sufijo_de_fecha_se_empareja_por_familia():
     assert est.precio_input_por_millon == 1.00
 
 
+def test_familia_mas_larga_gana_sobre_la_mas_corta(monkeypatch):
+    """Si una familia es prefijo de otra, debe ganar la más específica.
+
+    Con búsqueda en orden de inserción, agregar 'claude-opus-4' antes que
+    'claude-opus-4-8' haría que opus-4-8 se cobrara al precio equivocado sin
+    que nada fallara. Esta prueba fija el criterio.
+    """
+    from core import costos
+
+    precios = dict(costos.PRECIOS)
+    precios["claude-opus-4"] = costos.PrecioModelo(99.00, 99.00)
+    monkeypatch.setattr(costos, "PRECIOS", precios)
+
+    precio, catalogado = costos._precio_de("claude-opus-4-8-20260101")
+    assert catalogado is True
+    assert precio.output_por_millon == 25.00  # el de opus-4-8, no el señuelo
+
+
 def test_estimar_lote_acepta_texto_y_dict():
     articulos = {
         "1": "x" * 4000,

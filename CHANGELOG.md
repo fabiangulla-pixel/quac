@@ -1,5 +1,42 @@
 # Changelog — ¡Quac!
 
+## Sesión 2026-08-07: endurecido el lookup de precios (y por qué GPT-5.6 no entra aquí)
+
+Auditoría transversal de las tablas de costo IA, a raíz del recorte de precios
+de OpenAI del 30-jul-2026.
+
+### GPT-5.6 no se añadió, a propósito
+
+El catálogo de ¡Quac! es **solo-Claude**: `PRECIOS` no tiene ni un modelo de
+OpenAI y todos los motores corren en `claude-haiku-4-5`. Añadir la familia
+`gpt-5.6` habría sido código muerto que además envejece. Los proyectos que sí la
+necesitaban (ReactivosFlow, Bashkar Station LLM, Revisor Editorial PDF) ya la
+tienen.
+
+### Lo que sí tenía un defecto latente
+
+`_precio_de` recorría `PRECIOS` en **orden de inserción**. Hoy no hay colisión,
+pero el día que se agregue una familia que sea prefijo de otra —`claude-opus-4`
+junto a `claude-opus-4-8`— devolvería el precio equivocado **sin que nada
+fallara**. Los otros tres proyectos ya ordenaban por prefijo más largo; ahora
+también este.
+
+```python
+for familia in sorted(PRECIOS, key=len, reverse=True):
+```
+
+Con una prueba que inyecta el señuelo y comprueba que gana la familia más
+específica. **107 pruebas en verde** (`pytest tests/`).
+
+### Nota de higiene
+
+`pytest` sin argumentos falla al recolectar: barre
+`Para usar en cualquier PC/Quac_PRO/_internal/torch/…` y choca con nombres de
+módulo duplicados. Es previo a esta sesión. Convendría excluir esa carpeta en
+`pytest.ini`.
+
+---
+
 ## Sesión 2026-06-30: costo IA cableado + 3 fixes de calidad de datos
 
 Sesión de "resolver pendientes". Además se **desactivó la tarea programada de

@@ -61,9 +61,12 @@ def _precio_de(modelo: str) -> tuple[PrecioModelo, bool]:
     Modelo no catalogado → precio más caro conocido (cota superior conservadora).
     """
     base = (modelo or "").strip().lower()
-    for familia, precio in PRECIOS.items():
+    # De la familia más larga a la más corta: si algún día se agrega una familia
+    # que es prefijo de otra (p. ej. "claude-opus-4" junto a "claude-opus-4-8"),
+    # el orden de inserción daría el precio equivocado en silencio.
+    for familia in sorted(PRECIOS, key=len, reverse=True):
         if base == familia or base.startswith(familia):
-            return precio, True
+            return PRECIOS[familia], True
     mas_caro = max(PRECIOS.values(), key=lambda p: p.output_por_millon)
     return mas_caro, False
 
